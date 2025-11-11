@@ -14,7 +14,10 @@ function all_sinr_dB = calculateSINR(userPos, apList, apParams)
     PD_Area = 1e-4;         % 1 cm^2 -> m^2
     PD_Responsivity = 0.53; % A/W
     FOV_deg = 60;           % Receiver Field of View
-    m_l = 1;                % Lambertian order (m = -ln(2)/ln(cos(60 deg)) = 1)
+    % Lambertian order: m = -ln(2)/ln(cos(Phi_1/2))
+    % Assuming LED semi-angle Phi_1/2 = 60 deg (wide angle LED)
+    LED_semi_angle = 60;    % degrees
+    m_l = -log(2) / log(cosd(LED_semi_angle)); % Calculated Lambertian order
     
     % --- WiFi-specific Parameters (Standard Model) ---
     d_0 = 1;                % 1m reference distance
@@ -88,13 +91,20 @@ function all_sinr_dB = calculateSINR(userPos, apList, apParams)
         signal = received_power_linear(i);
         interference = 0;
         
-        % Sum interference from other APs of the *same type*
+        % Sum interference from other APs of the *same type* and *same frequency channel*
         for j = 1:numAPs
             if i ~= j && strcmp(apList(i).type, apList(j).type)
-                % NOTE: A full simulation would model LiFi freq. reuse [cite: 69]
-                % Here, we sum all other LiFi APs as interferers
-                % for simplicity.
-                interference = interference + received_power_linear(j);
+                % For LiFi: Only APs on the same frequency channel cause interference [cite: 69]
+                % For WiFi: All WiFi APs on same channel interfere (simplified model)
+                if strcmp(apList(i).type, 'LiFi')
+                    % Check if on same frequency channel
+                    if apList(i).freq_channel == apList(j).freq_channel
+                        interference = interference + received_power_linear(j);
+                    end
+                else
+                    % WiFi: all other WiFi APs interfere
+                    interference = interference + received_power_linear(j);
+                end
             end
         end
         
