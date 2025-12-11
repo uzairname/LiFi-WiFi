@@ -1,8 +1,6 @@
 % --- checkHandover_AdvancedProposed.m ---
 % Implements the Advanced Proposed Handover Algorithm with Monte Carlo Optimization
 % Features:
-% - 18x18x3m workspace with 36 LiFi attocells
-% - Gaussian Mixture Models for user mobility (velocity, direction, coverage zones)
 % - Monte Carlo Optimizer for evaluating thousands of handover scenarios
 % - Real-time optimal transition strategy determination
 
