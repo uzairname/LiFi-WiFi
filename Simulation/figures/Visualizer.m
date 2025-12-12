@@ -4,6 +4,7 @@ classdef Visualizer < handle
         Env          % Simulation environment (for AP positions)
         RoomSize
         SchemeTag    % Current handover scheme name
+        ShowCoverage % Whether to display coverage regions
         
         % Graphics Handles
         FigHandle
@@ -18,19 +19,45 @@ classdef Visualizer < handle
     end
     
     methods
-        function obj = Visualizer(env, room_size, scheme_tag)
+        function obj = Visualizer(env, room_size, scheme_tag, show_coverage, coverage_resolution)
+            % Constructor for Visualizer
+            % Inputs:
+            %   env: Simulation environment object
+            %   room_size: [width, height] of room in meters
+            %   scheme_tag: Name of handover strategy
+            %   show_coverage: (optional) Display coverage regions (default: false)
+            %   coverage_resolution: (optional) Grid spacing for coverage map (default: 0.2)
+            
             obj.Env = env;
             obj.RoomSize = room_size;
             obj.SchemeTag = scheme_tag;
             
-            obj.initializePlot();
+            % Handle optional parameters
+            if nargin < 4
+                obj.ShowCoverage = false;
+            else
+                obj.ShowCoverage = show_coverage;
+            end
+            
+            if nargin < 5
+                coverage_resolution = 0.2;
+            end
+            
+            obj.initializePlot(coverage_resolution);
         end
         
-        function initializePlot(obj)
+        function initializePlot(obj, coverage_resolution)
             obj.FigHandle = figure('Name', 'Real-Time Simulation', ...
                                    'Color', 'w', 'NumberTitle', 'off');
             obj.AxHandle = axes('Parent', obj.FigHandle);
             hold(obj.AxHandle, 'on');
+            
+            % Draw coverage regions as background if enabled
+            if obj.ShowCoverage
+                fprintf('Generating coverage map for visualization...\n');
+                obj.drawCoverageRegions(coverage_resolution);
+            end
+            
             axis(obj.AxHandle, 'equal');
             xlim(obj.AxHandle, [0 obj.RoomSize(1)]);
             ylim(obj.AxHandle, [0 obj.RoomSize(2)]);
@@ -106,6 +133,48 @@ classdef Visualizer < handle
             
             % 6. Force Draw
             drawnow limitrate; % 'limitrate' prevents slowing down calculation too much
+        end
+        
+        function drawCoverageRegions(obj, resolution)
+            % Draw coverage regions as background image
+            % White = LiFi better, Gray = WiFi better
+            
+            % Create grid
+            x_range = 0:resolution:obj.RoomSize(1);
+            y_range = 0:resolution:obj.RoomSize(2);
+            [X, Y] = meshgrid(x_range, y_range);
+            
+            % Initialize coverage map (1 = LiFi better, 2 = WiFi better)
+            coverage_map = zeros(size(X));
+            
+            % Calculate best technology at each point
+            for i = 1:numel(X)
+                pos = [X(i), Y(i)];
+                [sinr_db, ~] = obj.Env.getChannelResponse(pos);
+                
+                best_lifi_sinr = max(sinr_db(1:16));
+                best_wifi_sinr = max(sinr_db(17:20));
+                
+                if best_lifi_sinr > best_wifi_sinr
+                    coverage_map(i) = 1;  % LiFi region
+                else
+                    coverage_map(i) = 2;  % WiFi region
+                end
+            end
+            
+            % Display coverage map as background
+            imagesc(obj.AxHandle, x_range, y_range, coverage_map);
+            colormap(obj.AxHandle, [1 1 1; 0.75 0.75 0.75]);  % White = LiFi, Gray = WiFi
+            caxis(obj.AxHandle, [1 2]);
+            set(obj.AxHandle, 'YDir', 'normal');
+            
+            % Add colorbar
+            cb = colorbar(obj.AxHandle);
+            cb.Ticks = [1.25, 1.75];
+            cb.TickLabels = {'LiFi', 'WiFi'};
+            cb.Label.String = 'Best Tech';
+            
+            fprintf('Coverage map complete!\n');
         end
     end
 end

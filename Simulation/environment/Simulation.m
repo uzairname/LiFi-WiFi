@@ -14,8 +14,9 @@ classdef Simulation < handle
         TxPower_WiFi = 0.1;        % Watts (20 dBm)
         FOV = 60;                  % Degrees (Semi-angle)
         Responsivity = 0.53;       % A/W
-        NoisePSD_LiFi = 1e-21;     % A^2/Hz (Approx)
+        NoisePSD_LiFi = 1e-21;     % A^2/Hz (Thermal noise for LiFi, typical literature value)
         NoisePSD_WiFi = 10^(-174/10)*1e-3; % Watts/Hz (-174 dBm/Hz)
+        NoiseFigure_WiFi = 10;     % dB (Receiver noise figure)
         
         % --- Handover Parameters ---
         HOM = 1.0;            % Handover Margin (dB)
@@ -91,7 +92,15 @@ classdef Simulation < handle
             % Electrical SINR for LiFi: S = (R * P_rx)^2
             Sig_LiFi = (obj.Responsivity * obj.TxPower_LiFi * H_LiFi).^2;
             Noise_LiFi = obj.NoisePSD_LiFi * obj.Bandwidth;
-            SINR_LiFi = Sig_LiFi / Noise_LiFi;
+            
+            % Calculate SINR for each LiFi AP (including interference from other LiFi APs)
+            SINR_LiFi = zeros(16, 1);
+            for i = 1:16
+                % Interference = sum of received signal power from all OTHER LiFi APs
+                interference = sum(Sig_LiFi([1:i-1, i+1:end]));
+                % SINR = Signal / (Interference + Noise)
+                SINR_LiFi(i) = Sig_LiFi(i) / (interference + Noise_LiFi);
+            end
             
             % --- WiFi Channel (Log-distance) ---
             % PL(d) = PL(d0) + 10n log10(d/d0)
@@ -104,8 +113,16 @@ classdef Simulation < handle
             PL_dB = PL_d0 + 10*n_exp*log10(dist_W);
             
             Prx_WiFi = obj.TxPower_WiFi ./ (10.^(PL_dB/10));
-            Noise_WiFi = obj.NoisePSD_WiFi * obj.Bandwidth;
-            SINR_WiFi = Prx_WiFi / Noise_WiFi;
+            Noise_WiFi = obj.NoisePSD_WiFi * obj.Bandwidth * 10^(obj.NoiseFigure_WiFi/10);
+            
+            % Calculate SINR for each WiFi AP (including interference from other WiFi APs)
+            SINR_WiFi = zeros(4, 1);
+            for i = 1:4
+                % Interference = sum of received power from all OTHER WiFi APs
+                interference = sum(Prx_WiFi([1:i-1, i+1:end]));
+                % SINR = Signal / (Interference + Noise)
+                SINR_WiFi(i) = Prx_WiFi(i) / (interference + Noise_WiFi);
+            end
             
             % --- Capacity Bounds  ---
             % Eq (1): LiFi uses tight bound, WiFi uses Shannon
