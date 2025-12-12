@@ -1,70 +1,71 @@
 classdef Logger < handle
     properties
+        SpeedTag        % User speed tag for this logger (e.g., 'SLOW', 'FAST')
+        SchemeTag       % Handover scheme tag for this logger (e.g., 'PROP', 'STD', 'NAIVE')
         Time
         UserPos
         
-        % Properties tracked for different strategies, as key-values
-        HandoverEvents  % Map: String -> [Time, X, Y, FromAP, ToAP]
-        ActiveSINR      % Map: String -> [SINR_Value] (N x 1)
-        ActiveCapacity  % Map: String -> [Capacity_Value] (N x 1)
+        % Properties tracked for this single simulation run
+        HandoverEvents  % [Time, X, Y, FromAP, ToAP]
+        ActiveSINR      % [SINR_Value] (N x 1)
+        ActiveCapacity  % [Capacity_Value] (N x 1)
     end
     
     methods
-        function obj = Logger()
+        function obj = Logger(varargin)
+            % Constructor: Initialize logger with optional speed and scheme tags
+            % Usage:
+            %   Logger()                    - Default tags
+            %   Logger(scheme_tag)          - Only scheme tag
+            %   Logger(speed_tag, scheme_tag) - Both tags
+            
+            p = inputParser;
+            p.addOptional('speed_tag', 'DEFAULT_SPEED', @ischar);
+            p.addOptional('scheme_tag', 'DEFAULT_SCHEME', @ischar);
+            p.parse(varargin{:});
+            
+            % Handle backward compatibility: if only one arg, treat as scheme
+            if nargin == 1
+                obj.SpeedTag = 'DEFAULT_SPEED';
+                obj.SchemeTag = p.Results.speed_tag;
+            else
+                obj.SpeedTag = p.Results.speed_tag;
+                obj.SchemeTag = p.Results.scheme_tag;
+            end
+            
             obj.Time = [];
             obj.UserPos = [];
-            
-            % Initialize Containers
-            obj.HandoverEvents = containers.Map();
-            obj.ActiveSINR = containers.Map();
-            obj.ActiveCapacity = containers.Map();
+            obj.HandoverEvents = [];
+            obj.ActiveSINR = [];
+            obj.ActiveCapacity = [];
         end
         
-        function initStrategy(obj, tag)
-            obj.HandoverEvents(tag) = [];
-            obj.ActiveSINR(tag) = [];
-            obj.ActiveCapacity(tag) = [];
-        end
-        
-        function logStep(obj, t, pos, strategy_data)
-            % strategy_data: Struct where field names are tags (e.g., data.STD)
-            % containing {SINR, Capacity}
+        function logStep(obj, t, pos, sinr_val, capacity_val)
+            % Log a single timestep with SINR and Capacity values
             
             obj.Time(end+1, 1) = t;
             obj.UserPos(end+1, :) = pos;
-            
-            tags = fieldnames(strategy_data);
-            for i = 1:length(tags)
-                tag = tags{i};
-                vals = strategy_data.(tag); % Expecting [SINR, Capacity]
-                
-                % Append to existing arrays in Map
-                obj.ActiveSINR(tag) = [obj.ActiveSINR(tag); vals(1)];
-                obj.ActiveCapacity(tag) = [obj.ActiveCapacity(tag); vals(2)];
-            end
+            obj.ActiveSINR(end+1, 1) = sinr_val;
+            obj.ActiveCapacity(end+1, 1) = capacity_val;
         end
         
-        function logHandover(obj, tag, t, pos, from_ap, to_ap)
+        function logHandover(obj, t, pos, from_ap, to_ap)
+            % Log a handover event
             new_event = [t, pos(1), pos(2), double(from_ap), double(to_ap)];
-            
-            if isKey(obj.HandoverEvents, tag)
-                obj.HandoverEvents(tag) = [obj.HandoverEvents(tag); new_event];
-            else
-                obj.HandoverEvents(tag) = new_event;
-            end
+            obj.HandoverEvents(end+1, :) = new_event;
         end
         
         % Helper to retrieve generic data
-        function data = getTrace(obj, tag, metricType)
+        function data = getTrace(obj, metricType)
             if strcmp(metricType, 'SINR')
-                data = obj.ActiveSINR(tag);
+                data = obj.ActiveSINR;
             elseif strcmp(metricType, 'Capacity')
-                data = obj.ActiveCapacity(tag);
+                data = obj.ActiveCapacity;
             end
         end
         
-        function events = getEvents(obj, tag)
-            events = obj.HandoverEvents(tag);
+        function events = getEvents(obj)
+            events = obj.HandoverEvents;
         end
     end
 end

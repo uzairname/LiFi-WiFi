@@ -4,15 +4,18 @@ classdef StrategySTD < HandoverStrategy
     properties(Access = private)
         HOM     % Handover Margin (dB)
         TTT     % Time to Trigger (s)
-        AP_Types % Array: 1=LiFi, 2=WiFi (Needed for proposed weighting)
+        Env     % Simulation environment (for AP type checking)
         TimerStart      % Timestamp when condition first met
         CandidateAP     % The specific AP triggering the timer
         IsTimerActive   % Boolean flag
     end
     
     methods
-        function obj = StrategySTD(hom, ttt, ap_types)
-            obj@HandoverStrategy(hom, ttt, ap_types);
+        function obj = StrategySTD(hom, ttt, env)
+            obj@HandoverStrategy();
+            obj.HOM = hom;
+            obj.TTT = ttt;
+            obj.Env = env;
             obj.TimerStart = -1;
             obj.CandidateAP = -1;
             obj.IsTimerActive = false;

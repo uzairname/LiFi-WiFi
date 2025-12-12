@@ -4,7 +4,7 @@ classdef StrategySkipping < HandoverStrategy
     properties
         HOM     % Handover Margin (dB)
         TTT     % Time to Trigger (s)
-        AP_Types % Array: 1=LiFi, 2=WiFi (Needed for proposed weighting)
+        Env     % Simulation environment (for AP type checking)
         Lambda % Weight coefficient for WiFi
     end
     
@@ -15,11 +15,11 @@ classdef StrategySkipping < HandoverStrategy
     end
     
     methods
-        function obj = StrategySkipping(hom, ttt, ap_types, lambda)
+        function obj = StrategySkipping(hom, ttt, env, lambda)
             obj@HandoverStrategy();
             obj.HOM = hom;
             obj.TTT = ttt;
-            obj.AP_Types = ap_types;
+            obj.Env = env;
             obj.Lambda = lambda;
             obj.IsTimerActive = false;
         end
@@ -50,7 +50,8 @@ classdef StrategySkipping < HandoverStrategy
                         Gamma = obj.SINR_at_t0 + delta_gamma;
                         
                         % Apply Lambda weighting to WiFi APs (Type 2)
-                        wifi_mask = (obj.AP_Types == 2);
+                        ap_types = obj.Env.getAPTypes();
+                        wifi_mask = (ap_types == 2);
                         Gamma(wifi_mask) = obj.Lambda * (obj.SINR_at_t0(wifi_mask) + delta_gamma(wifi_mask));
                         
                         % 3. Determine Winner

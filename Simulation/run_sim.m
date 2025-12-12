@@ -4,85 +4,119 @@ addpath('Simulation/mobility-models');
 addpath('Simulation/strategies');
 addpath('Simulation/figures');
 addpath('Simulation/analysis')
+addpath('Simulation/environment');
 
 %% 1. Setup
-DT = 0.05;
+DT = 0.01;
 DURATION = 30;          
-SPEED_RANGE = [1.5, 2.5]; 
 ROOM_SIZE = [10, 10];
-HOM = 1.0; 
-TTT = 0.160; 
-LAMBDA = 0.0; % Aggressive skipping for visualization
+HOM = 0.0; 
+TTT = 0.160;
 
-% Initialize Classes
+% Visualization Settings
+ENABLE_VIZ = true;  % Set to false to disable visualization
+VIZ_UPDATE_RATE = 0.1;  % Update visualization every N seconds (reduces overhead)
+VIZ_DELAY = 0.05;  % Delay between simulation steps when visualizing (seconds) 
+
+% Define speed ranges to test
+speed_configs = {
+    [0.5, 1.5], '1.0';
+    [1.5, 2.5], '2.0';
+    [3.0, 4.0], '3.5'
+};
+
+% Initialize environment (shared across all runs)
 env = Simulation(); 
 env.setupEnvironment();
-mobility = ModifiedRWP(ROOM_SIZE, SPEED_RANGE);
-ap_types = [ones(1, 16), ones(1, 4)*2]; 
-strategy = StrategySkipping(HOM, TTT, ap_types, LAMBDA); % Using Proposed Scheme
-% strategy = StrategyNaive();
 
-logger = Logger();
+% Define handover schemes to test
+schemes = {
+  %  @() StrategyNaive(), 'NAIVE';
+   % @() StrategySTD(HOM, TTT, env), 'STD'
+    @() StrategySkipping(HOM, TTT, env, 0.4), 'SKIPPING'  % Lower Lambda = skip less
+};
 
-%% 2. Initialize Real-Time Visualizer
-% Extract positions from environment for the plotter
-viz = Visualizer(env.LiFi_Pos, env.WiFi_Pos, ROOM_SIZE);
+% Storage for all loggers
+all_loggers = {};
 
-%% 3. Simulation Loop
-fprintf('Starting Real-Time Simulation. Press Ctrl+C to stop.\n');
+%% 2. Run Simulations for All Configurations
+fprintf('Starting Simulations...\n');
+fprintf('Testing %d speed ranges × %d schemes = %d total runs\n\n', ...
+    size(speed_configs, 1), size(schemes, 1), size(speed_configs, 1) * size(schemes, 1));
 
-current_t = 0;
-current_ap = 1;
-
-
-test_pos = [5, 5];
-[sinr_db, capacity] = env.getChannelResponse(test_pos);
-fprintf('\n--- Channel Response at (%.1f, %.1f) ---\n', test_pos(1), test_pos(2));
-disp('SINR (dB) per AP:');
-disp(sinr_db);
-disp('Capacity (Mbps) per AP:');
-disp(capacity / 1e6);
-
-
-while current_t < DURATION
-    % Physics Step
-    user_pos = mobility.step(DT);
-    [sinr_db, ~] = env.getChannelResponse(user_pos);
+for speed_idx = 1:size(speed_configs, 1)
+    SPEED_RANGE = speed_configs{speed_idx, 1};
+    speed_tag = speed_configs{speed_idx, 2};
     
-    % Strategy Step
-    meas.SINR = sinr_db; 
-    meas.Time = current_t;
-    
-    new_ap = strategy.decideHandover(current_t, current_ap, meas);
-    if new_ap ~= current_ap
-        logger.logHandover('PROP', current_t, user_pos, current_ap, new_ap);
-        current_ap = new_ap;
+    for scheme_idx = 1:size(schemes, 1)
+        strategy_factory = schemes{scheme_idx, 1};
+        scheme_tag = schemes{scheme_idx, 2};
+        
+        fprintf('Simuating Speed: %s, Scheme: %s\n', speed_tag, scheme_tag);
+        
+        % Initialize for this run
+        mobility = ModifiedRWP(ROOM_SIZE, SPEED_RANGE);
+        strategy = strategy_factory();
+        logger = Logger(speed_tag, scheme_tag);
+        
+        % Initialize visualizer if enabled
+        if ENABLE_VIZ
+            viz = Visualizer(env, ROOM_SIZE, scheme_tag);
+            last_viz_update = 0;
+        end
+        
+        % Simulation loop
+        current_t = 0;
+        current_ap = 1;
+        
+        while current_t < DURATION
+            % Physics Step
+            user_pos = mobility.step(DT);
+            [sinr_db, capacity] = env.getChannelResponse(user_pos);
+            
+            % Strategy Step
+            meas.SINR = sinr_db; 
+            meas.Time = current_t;
+            
+            new_ap = strategy.decideHandover(current_t, current_ap, meas);
+            if new_ap ~= current_ap
+                logger.logHandover(current_t, user_pos, current_ap, new_ap);
+                current_ap = new_ap;
+            end
+            
+            % Log metrics for current timestep
+            logger.logStep(current_t, user_pos, sinr_db(current_ap), capacity(current_ap));
+            
+            % Update visualization (throttled)
+            if ENABLE_VIZ && (current_t - last_viz_update >= VIZ_UPDATE_RATE)
+                viz.update(user_pos, current_ap, current_t, sinr_db(current_ap));
+                last_viz_update = current_t;
+                pause(VIZ_DELAY);  % Add delay for smoother visualization
+            end
+            
+            % Time Step
+            current_t = current_t + DT;
+        end
+        
+        % Store logger for analysis
+        all_loggers{end+1} = logger;
+        fprintf('  Completed. Handovers: %d\n\n', size(logger.HandoverEvents, 1));
+        
+        % Close visualizer if enabled (clean up for next run)
+        if ENABLE_VIZ
+            close(viz.FigHandle);
+        end
     end
-    
-    % --- VISUALIZATION UPDATE ---
-    viz.update(user_pos, current_ap);
-    % ----------------------------
-    
-    % Time Step
-    current_t = current_t + DT;
-    
-    % Optional: Enforce real-time speed (otherwise it runs as fast as CPU allows)
-    pause(0.01); 
+end
+
+%% analysis
+
+% Print logger summary
+for i = 1:length(all_loggers)
+    logger = all_loggers{i};
+    fprintf('Logger %d: Speed=%s, Scheme=%s, Handovers=%d, Duration=%.2f s\n', ...
+        i, logger.SpeedTag, logger.SchemeTag, size(logger.HandoverEvents, 1), logger.Time(end));
 end
 
 
-% record metrics
-
-analyzer = MetricsAnalyzer();
-report = analyzer.generateReport(logger, 'STD');
-
-% 4. Print Summary
-fprintf('--- Standard Scheme ---\n');
-fprintf('HO Rate: %.2f/s | VHO Ratio: %.2f | Downtime: %.2fs\n', ...
-    report_std.HandoverFrequency, report_std.VHO_Ratio, report_std.TotalDowntime);
-
-% 5. Visualize
-analyzer.plotComparison({report_std, report_prop});
-
-
-fprintf('Simulation Finished.\n');
+fprintf('All Simulations Finished.\n');

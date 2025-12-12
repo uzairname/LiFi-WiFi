@@ -7,7 +7,6 @@ classdef Simulation < handle
         RoomSize = [10, 10];
         LiFi_Spacing = 2.5;         % Spacing between LiFi APs (r)
         Vertical_Distance = 3.0;
-        Num_WiFi = 4;
         
         % --- PHY Layer Parameters ---
         Bandwidth = 10e6;          % 10 MHz
@@ -26,8 +25,7 @@ classdef Simulation < handle
         Delay_VHO = 0.500;    % Vertical Handover Delay (s)
         
         % --- State Variables ---
-        LiFi_Pos      % Matrix of LiFi AP coordinates
-        WiFi_Pos      % Matrix of WiFi AP coordinates
+        APs               % Array of AccessPoint objects
     end
     
     methods
@@ -43,14 +41,28 @@ classdef Simulation < handle
             x = linspace(obj.LiFi_Spacing/2, obj.RoomSize(1)-obj.LiFi_Spacing/2, 4);
             y = linspace(obj.LiFi_Spacing/2, obj.RoomSize(2)-obj.LiFi_Spacing/2, 4);
             [X, Y] = meshgrid(x, y);
-            obj.LiFi_Pos = [X(:), Y(:), ones(16,1) * obj.Vertical_Distance];
+            lifi_positions = [X(:), Y(:), ones(16,1) * obj.Vertical_Distance];
             
             % 2. WiFi Regular Deployment (Centers of 4 quadrants)
             % Quadrant centers: (2.5, 2.5), (7.5, 2.5), etc.
             wx = [2.5, 7.5];
             wy = [2.5, 7.5];
             [WX, WY] = meshgrid(wx, wy);
-            obj.WiFi_Pos = [WX(:), WY(:), ones(4,1) * obj.Vertical_Distance];
+            wifi_positions = [WX(:), WY(:), ones(4,1) * obj.Vertical_Distance];
+            
+            % 3. Create AccessPoint objects
+            obj.APs = AccessPoint.empty(20, 0);
+            
+            % Create LiFi APs (indices 1-16)
+            for i = 1:16
+                obj.APs(i) = AccessPoint(i, lifi_positions(i, :), 1, obj.TxPower_LiFi);
+            end
+            
+            % Create WiFi APs (indices 17-20)
+            for i = 1:4
+                ap_id = 16 + i;
+                obj.APs(ap_id) = AccessPoint(ap_id, wifi_positions(i, :), 2, obj.TxPower_WiFi);
+            end
         end
         
         function [sinr_db, capacity] = getChannelResponse(obj, user_pos)
@@ -58,13 +70,17 @@ classdef Simulation < handle
             % Returns: sinr_db (1 x NumAPs), capacity (1 x NumAPs)
             % Indices 1-16 are LiFi, 17-20 are WiFi
             
+            % Extract positions from APs
+            lifi_pos = obj.getLiFiPositions();
+            wifi_pos = obj.getWiFiPositions();
+            
             % --- LiFi Channel (Lambertian) ---
             % H = (m+1)A / (2pi d^2) * cos^m(phi) * cos(psi)
             m = -log(2) / log(cosd(obj.FOV)); % Lambertian order
             Adet = 1e-4; % Detector area (assumed standard)
             
             % Vectors from user to all LiFi APs
-            vec_L = obj.LiFi_Pos - [user_pos, 0]; 
+            vec_L = lifi_pos - [user_pos, 0]; 
             dist_L = sqrt(sum(vec_L.^2, 2));
             cos_phi = vec_L(:,3) ./ dist_L; % Angle of irradiance
             cos_psi = vec_L(:,3) ./ dist_L; % Angle of incidence (assuming facing up)
@@ -79,7 +95,7 @@ classdef Simulation < handle
             
             % --- WiFi Channel (Log-distance) ---
             % PL(d) = PL(d0) + 10n log10(d/d0)
-            vec_W = obj.WiFi_Pos - [user_pos, 0];
+            vec_W = wifi_pos - [user_pos, 0];
             dist_W = sqrt(sum(vec_W.^2, 2));
             
             f_c = 2.4e9; c = 3e8; lambda = c/f_c;
@@ -104,6 +120,44 @@ classdef Simulation < handle
         
         function isEmpty = isEmpty(~, val)
              isEmpty = isempty(val);
+        end
+        
+        function ap_type = getAPType(obj, ap_id)
+            % Returns: 1 (LiFi) or 2 (WiFi)
+            ap_type = obj.APs(ap_id).Type;
+        end
+        
+        function is_vertical = isVerticalHandover(obj, from_ap, to_ap)
+            % Check if handover is vertical (crosses technology boundary)
+            % Returns: true if LiFi <-> WiFi, false otherwise
+            from_type = obj.APs(from_ap).Type;
+            to_type = obj.APs(to_ap).Type;
+            is_vertical = (from_type ~= to_type);
+        end
+        
+        function num_aps = getNumAPs(obj)
+            % Get total number of APs
+            num_aps = length(obj.APs);
+        end
+        
+        function ap_types = getAPTypes(obj)
+            % Get array of AP types (for backward compatibility)
+            % Returns: [1,1,...,1,2,2,2,2] for 16 LiFi + 4 WiFi
+            ap_types = arrayfun(@(ap) ap.Type, obj.APs);
+        end
+        
+        function lifi_pos = getLiFiPositions(obj)
+            % Get positions of all LiFi APs
+            % Returns: Nx3 matrix of [x, y, z] coordinates
+            lifi_aps = obj.APs([obj.APs.Type] == 1);
+            lifi_pos = vertcat(lifi_aps.Position);
+        end
+        
+        function wifi_pos = getWiFiPositions(obj)
+            % Get positions of all WiFi APs
+            % Returns: Nx3 matrix of [x, y, z] coordinates
+            wifi_aps = obj.APs([obj.APs.Type] == 2);
+            wifi_pos = vertcat(wifi_aps.Position);
         end
     end
 end
