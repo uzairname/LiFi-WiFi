@@ -7,7 +7,7 @@ clear; clc; close all;
 %% 1. Simulation Parameters
 simParams.roomSize = [15, 15];       % [X, Y] meters
 simParams.simDuration = 60;          % Total simulation time (60s for testing, 3600s for full results)
-simParams.dt = 0.001;                % Time step (100 ms for accurate TTT)
+simParams.dt = 0.01;                % Time step (100 ms for accurate TTT)
 simParams.v_list = [0.1, 1.5, 3.0];  % User speeds to test (match paper)
 simParams.HOM = 1;                   % Handover Margin in dB [cite: 291]
 simParams.TTT = 0.160;               % Time to Trigger in seconds (160 ms) [cite: 291]
